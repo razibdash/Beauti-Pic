@@ -6,7 +6,7 @@ import toast, { Toaster } from "react-hot-toast";
 
 export default function Home() {
   const [prompt, setPrompt] = useState("");
-  const [imageURL, setImageURL] = useState("https://plus.unsplash.com/premium_photo-1664474619075-644dd191935f?fm=jpg&q=60&w=3000&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxzZWFyY2h8MXx8aW1hZ2V8ZW58MHx8MHx8fDA%3D");
+  const [imageURL, setImageURL] = useState(null);
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState([]);
   const [resolution, setResolution] = useState("512x512");
@@ -22,7 +22,7 @@ export default function Home() {
     toast.loading("Generating image...");
 
     try {
-      const res = await fetch("/api/generate", {
+      const res = await fetch("http://localhost:3000/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ prompt, resolution }),
@@ -63,7 +63,6 @@ export default function Home() {
          <div className="flex justify-between items-start">
              
               <h1 className="text-4xl font-bold mb-6 text-center">🎨 AI Image Generator</h1>
-               <ThemeToggle />
          </div>
         
 
