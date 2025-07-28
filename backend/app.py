@@ -1,45 +1,80 @@
-from flask import Flask, request, send_file, jsonify
-from flask_cors import CORS
-from diffusers import StableDiffusionPipeline
-import torch
-import uuid
 import os
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+import requests
+from PIL import Image
+from io import BytesIO
+from datetime import datetime
+import cloudinary.uploader
+from huggingface_hub import InferenceClient
+from dotenv import load_dotenv
+load_dotenv()
+# === Load environment variables ===
+HF_TOKEN = os.environ.get("HF_TOKEN") or "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"
+
+cloudinary.config(
+    cloud_name=os.environ.get("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.environ.get("CLOUDINARY_API_KEY"),
+    api_secret=os.environ.get("CLOUDINARY_API_SECRET"),
+)
+
+# === Initialize API clients ===
+client = InferenceClient(
+    model="stabilityai/stable-diffusion-xl-base-1.0",
+    token=HF_TOKEN
+)
 
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all domains
 
-# Load Hugging Face model (only once)
-model_id = "runwayml/stable-diffusion-v1-5"
-pipe = StableDiffusionPipeline.from_pretrained(
-    model_id, torch_dtype=torch.float16
-).to("cuda" if torch.cuda.is_available() else "cpu")
+@app.route("/")
+def read_root():
+    return {"message": "Hello, Flask"}
 
-# Ensure output folder exists
-OUTPUT_DIR = "generated_images"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# === Logging function ===
+def log_prompt(prompt: str, cloudinary_url: str):
+    with open("image_log.csv", "a") as f:
+        timestamp = datetime.now().isoformat()
+        f.write(f'"{prompt}","{cloudinary_url}","{timestamp}"\n')
 
-@app.route("/api/generate", methods=["POST"])
+# === Flask route ===
+@app.route("/generate-image/", methods=["POST"])
 def generate_image():
     data = request.get_json()
     prompt = data.get("prompt")
-    resolution = data.get("resolution", "512x512")
 
     if not prompt:
-        return jsonify({"error": "No prompt provided"}), 400
+        return jsonify({"error": "Missing prompt"}), 400
+
+    # 1. Generate image from Hugging Face
+    image = client.text_to_image(prompt)
+
+    # Save image to bytes
+    img_bytes = BytesIO()
+    image.save(img_bytes, format="PNG")
+    img_bytes.seek(0)
+
+    if not image:
+        return jsonify({"error": "Failed to generate image"}), 500
 
     try:
-        width, height = map(int, resolution.split("x"))
-
-        # Generate image
-        image = pipe(prompt, height=height, width=width).images[0]
-        filename = f"{uuid.uuid4()}.png"
-        filepath = os.path.join(OUTPUT_DIR, filename)
-        image.save(filepath)
-
-        return send_file(filepath, mimetype="image/png")
-
+        image = Image.open(BytesIO(img_bytes.getvalue()))
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Invalid image format: {str(e)}"}), 500
 
-if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    # 2. Save locally
+    image_path = "generated_image.png"
+    image.save(image_path)
+    # Upload to Cloudinary
+    upload_result = cloudinary.uploader.upload(img_bytes, folder="ai_images", public_id=f"image_{datetime.now().strftime('%Y%m%d%H%M%S')}")
+
+    image_url = upload_result["secure_url"]
+
+    return jsonify({
+        "message": "Image generated and uploaded",
+        "url": image_url
+    })
+
+# === Run the Flask app ===
+if __name__ == '__main__':
+    app.run(host="0.0.0.0", port= 8080, debug= True)
+# === End of backend/app.py ===
